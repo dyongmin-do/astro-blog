@@ -1,0 +1,25 @@
+# 后端配置：使用 Git Gateway
+backend:
+  name: git-gateway
+  branch: main
+
+# 媒体文件（图片等）存储路径
+media_folder: 'src/assets/images'
+public_folder: '/_astro'
+
+# 启用编辑工作流（可选：草稿 → 审核 → 发布）
+editorial_workflow: true
+
+# 内容集合定义
+collections:
+  - name: 'post'
+    label: '博客文章'
+    folder: 'src/content/post'
+    create: true
+    slug: '{{year}}-{{month}}-{{day}}-{{slug}}'
+    fields:
+      - { label: '标题', name: 'title', widget: 'string' }
+      - { label: '发布时间', name: 'date', widget: 'datetime' }
+      - { label: '封面图', name: 'image', widget: 'image', required: false }
+      - { label: '标签', name: 'tags', widget: 'list', required: false }
+      - { label: '内容', name: 'body', widget: 'markdown' }
