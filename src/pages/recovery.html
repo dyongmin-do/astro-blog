@@ -19,9 +19,11 @@
       .container {
         text-align: center;
         padding: 2rem;
+        max-width: 420px;
+        width: 100%;
       }
       h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-      p { color: #666; margin-bottom: 1.5rem; }
+      p { color: #666; margin-bottom: 1rem; line-height: 1.6; }
       a {
         display: inline-block;
         padding: 0.6rem 1.5rem;
@@ -29,22 +31,182 @@
         color: #fff;
         text-decoration: none;
         border-radius: 5px;
+        margin-top: 0.5rem;
       }
       a:hover { background: #005bb5; }
+      .error { display: none; }
+      .error.show { display: block; }
+      .loading.show { display: block; }
+      .loading { display: none; }
+      .success { display: none; }
+      .success.show { display: block; }
+      form {
+        display: none;
+        text-align: left;
+        margin-top: 1.5rem;
+      }
+      form.show { display: block; }
+      label {
+        display: block;
+        font-size: 0.9rem;
+        margin-bottom: 0.3rem;
+        font-weight: 500;
+      }
+      input {
+        width: 100%;
+        padding: 0.6rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 1rem;
+        box-sizing: border-box;
+        margin-bottom: 1rem;
+      }
+      button {
+        width: 100%;
+        padding: 0.7rem;
+        background: #0070f3;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      button:hover { background: #005bb5; }
+      button:disabled { background: #999; cursor: not-allowed; }
+      .msg {
+        margin-top: 0.5rem;
+        font-size: 0.9rem;
+        min-height: 1.4em;
+      }
+      .msg.err { color: #d00; }
+      .msg.ok { color: #080; }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>正在处理密码重置...</h1>
-      <p>如果没有弹出重置密码窗口，请稍候。</p>
-      <a href="/admin.html">前往管理后台</a>
+      <div id="loading" class="loading show">
+        <h1>正在处理密码重置...</h1>
+        <p>请稍候，正在验证重置链接。</p>
+      </div>
+
+      <div id="error" class="error">
+        <h1>链接无效或已过期</h1>
+        <p>该密码重置链接可能已使用过或已过期，请在管理后台重新申请重置密码。</p>
+        <a href="/admin.html">前往管理后台</a>
+      </div>
+
+      <div id="form-wrap">
+        <h1>设置新密码</h1>
+        <p>请输入你的新密码。</p>
+        <form id="reset-form">
+          <label for="new-password">新密码</label>
+          <input type="password" id="new-password" minlength="8" required placeholder="至少 8 位" />
+          <label for="confirm-password">确认密码</label>
+          <input type="password" id="confirm-password" minlength="8" required placeholder="再次输入新密码" />
+          <button type="submit" id="submit-btn">重置密码</button>
+          <div id="msg" class="msg"></div>
+        </form>
+      </div>
+
+      <div id="success" class="success">
+        <h1>密码重置成功</h1>
+        <p>你的密码已更新，现在可以使用新密码登录了。</p>
+        <a href="/admin.html">前往管理后台</a>
+      </div>
     </div>
-    <script src="https://unpkg.com/netlify-identity-widget@1/dist/netlify-identity-widget.js"></script>
+
     <script>
-      netlifyIdentity.on('close', function() {
-        // 用户关闭弹窗后跳转到管理后台
-        window.location.href = '/admin.html';
-      });
+      (function() {
+        var hash = window.location.hash;
+        if (!hash || (!hash.includes('recovery_token') && !hash.includes('invite_token'))) {
+          showError();
+          return;
+        }
+
+        var tokenType = hash.includes('recovery_token') ? 'recovery' : 'invite';
+        var token = (hash.match(/(?:recovery_token|invite_token)=(.+)/) || [])[1];
+        if (!token) {
+          showError();
+          return;
+        }
+
+        // 直接调用 Netlify Identity API 完成 token 验证，不依赖 netlify-identity-widget
+        var siteId = document.currentScript ? null : null;
+
+        // 通过 /netlify/identity 端点（Netlify 自动注入）来操作
+        var apiBase = '/.netlify/identity';
+
+        // 第一步：用 token 验证身份
+        fetch(apiBase + '/' + tokenType, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: token })
+        })
+        .then(function(res) {
+          if (!res.ok) throw new Error('Token 验证失败 (' + res.status + ')');
+          return res.json();
+        })
+        .then(function(data) {
+          // 验证成功，显示密码重置表单
+          document.getElementById('loading').classList.remove('show');
+          document.getElementById('form-wrap').classList.add('show');
+
+          var form = document.getElementById('reset-form');
+          form.onsubmit = function(e) {
+            e.preventDefault();
+            var pwd = document.getElementById('new-password').value;
+            var confirm = document.getElementById('confirm-password').value;
+            var msgEl = document.getElementById('msg');
+            msgEl.textContent = '';
+            msgEl.className = 'msg';
+
+            if (pwd.length < 8) {
+              msgEl.textContent = '密码至少需要 8 位';
+              msgEl.classList.add('err');
+              return;
+            }
+            if (pwd !== confirm) {
+              msgEl.textContent = '两次输入的密码不一致';
+              msgEl.classList.add('err');
+              return;
+            }
+
+            document.getElementById('submit-btn').disabled = true;
+            msgEl.textContent = '正在重置...';
+
+            // 第二步：用返回的 access token 更新密码
+            fetch(apiBase + '/user', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + data.access_token
+              },
+              body: JSON.stringify({ password: pwd })
+            })
+            .then(function(res2) {
+              if (!res2.ok) throw new Error('密码更新失败 (' + res2.status + ')');
+              return res2.json();
+            })
+            .then(function() {
+              document.getElementById('form-wrap').classList.remove('show');
+              document.getElementById('success').classList.add('show');
+            })
+            .catch(function(err2) {
+              msgEl.textContent = err2.message;
+              msgEl.classList.add('err');
+              document.getElementById('submit-btn').disabled = false;
+            });
+          };
+        })
+        .catch(function(err) {
+          showError(err.message);
+        });
+
+        function showError(msg) {
+          document.getElementById('loading').classList.remove('show');
+          document.getElementById('error').classList.add('show');
+        }
+      })();
     </script>
   </body>
 </html>
