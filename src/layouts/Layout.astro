@@ -10,6 +10,12 @@
 	</head>
 	<body>
 		<slot />
+		<script is:inline>
+			// 检测 Netlify Identity 的 recovery/invite token，自动跳转到 admin 页面处理
+			if (window.location.hash.includes('recovery_token') || window.location.hash.includes('invite_token')) {
+				window.location.href = '/admin.html' + window.location.hash;
+			}
+		</script>
 	</body>
 </html>
 
